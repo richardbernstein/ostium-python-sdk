@@ -1,20 +1,49 @@
 from gql import gql
-
 from gql import Client
 from gql.transport.aiohttp import AIOHTTPTransport
 from decimal import Decimal
+import asyncio
 
 
 class SubgraphClient:
     def __init__(self, url: str = None, verbose=False) -> None:
         self.verbose = verbose
-        transport = AIOHTTPTransport(url=url)
-        self.client = Client(transport=transport,
-                             fetch_schema_from_transport=True)
+        self.url = url
+        self._client = None
+        self._lock = asyncio.Lock()
 
     def log(self, message):
         if self.verbose:
             print(message)
+
+    async def _get_client(self):
+        """Get or create a GQL client with proper connection handling"""
+        if self._client is None:
+            transport = AIOHTTPTransport(url=self.url)
+            self._client = Client(
+                transport=transport,
+                fetch_schema_from_transport=True,
+                execute_timeout=None
+            )
+        return self._client
+
+    async def _execute_query(self, query, variable_values=None):
+        """Execute a query with proper connection handling"""
+        async with self._lock:
+            client = await self._get_client()
+            try:
+                result = await client.execute_async(query, variable_values=variable_values)
+                return result
+            except Exception as e:
+                # If there's a connection issue, try to recreate the client
+                if "Transport is already connected" in str(e) or "already connected" in str(e):
+                    self.log("Connection issue detected, recreating client...")
+                    self._client = None
+                    client = await self._get_client()
+                    result = await client.execute_async(query, variable_values=variable_values)
+                    return result
+                else:
+                    raise e
 
     async def get_pairs(self):
         self.log("Fetching available pairs")
@@ -71,9 +100,8 @@ class SubgraphClient:
       """
         )
 
-        # Execute the query on the transport
-        result = await self.client.execute_async(query)
-
+        # Execute the query using the new method
+        result = await self._execute_query(query)
         return result['pairs']
 
     async def get_pair_details(self, pair_id):
@@ -128,7 +156,7 @@ class SubgraphClient:
           }
           """
         )
-        result = await self.client.execute_async(query, variable_values={"pair_id": str(pair_id)})
+        result = await self._execute_query(query, variable_values={"pair_id": str(pair_id)})
 
         # Convert Decimal fields to float or str
         if result and 'pair' in result:
@@ -150,7 +178,7 @@ class SubgraphClient:
           }
           """
         )
-        result = await self.client.execute_async(query)
+        result = await self._execute_query(query)
 
         liq_margin_threshold_p = result['metaDatas'][0]['liqMarginThresholdP']
 
@@ -214,7 +242,7 @@ class SubgraphClient:
       }
           """
         )
-        result = await self.client.execute_async(query, variable_values={"trader": address})
+        result = await self._execute_query(query, variable_values={"trader": address})
         return result['trades']
 
     async def get_orders(self, trader):
@@ -258,8 +286,7 @@ class SubgraphClient:
           }
           """
         )
-        result = await self.client.execute_async(query, variable_values={"trader": trader})
-
+        result = await self._execute_query(query, variable_values={"trader": trader})
         return result['limits']
 
     async def get_recent_history(self, trader, last_n_orders=10):
@@ -308,8 +335,7 @@ class SubgraphClient:
         }
         """
         )
-        result = await self.client.execute_async(query, variable_values={"trader": trader, "last_n_orders": last_n_orders})
-
+        result = await self._execute_query(query, variable_values={"trader": trader, "last_n_orders": last_n_orders})
         return list(reversed(result['orders']))  # Reverse the final list
 
     async def get_order_by_id(self, order_id):
@@ -364,7 +390,7 @@ class SubgraphClient:
             """
         )
 
-        result = await self.client.execute_async(query, variable_values={"order_id": str(order_id)})
+        result = await self._execute_query(query, variable_values={"order_id": str(order_id)})
 
         if result and 'orders' in result and len(result['orders']) > 0:
             return result['orders'][0]
@@ -409,7 +435,7 @@ class SubgraphClient:
             """
         )
 
-        result = await self.client.execute_async(query, variable_values={"trade_id": str(trade_id)})
+        result = await self._execute_query(query, variable_values={"trade_id": str(trade_id)})
 
         if result and 'trades' in result and len(result['trades']) > 0:
             return result['trades'][0]
