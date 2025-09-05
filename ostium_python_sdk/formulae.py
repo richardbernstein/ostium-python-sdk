@@ -130,8 +130,7 @@ def GetTradeFundingFee(
     collateral: Decimal,
     leverage: Decimal
 ) -> Decimal:
-    print(
-        f"======> GetTradeFundingFee: initial_funding: {initial_funding}, current_funding: {current_funding}, collateral: {collateral}, leverage: {leverage}")
+    
     funding_fee = (current_funding - initial_funding) * collateral * leverage
     return funding_fee
 
