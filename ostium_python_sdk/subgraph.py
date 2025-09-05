@@ -320,6 +320,10 @@ class SubgraphClient:
             amountSentToTrader
             rolloverFee
             fundingFee
+            devFee
+            vaultFee
+            oracleFee
+            liquidationFee
             pair {
               id
               from
